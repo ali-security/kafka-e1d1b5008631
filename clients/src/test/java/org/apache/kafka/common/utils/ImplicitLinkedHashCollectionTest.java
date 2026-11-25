@@ -30,6 +30,7 @@ import java.util.Random;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -490,6 +491,84 @@ public class ImplicitLinkedHashCollectionTest {
         assertEquals(23, coll.numSlots());
         assertEquals(5, coll.size());
         expectTraversal(coll.iterator(), 0, 1, 2, 4, 5);
+    }
+
+    /**
+     * An element whose hash code is its key, like the generated keyed collections with an
+     * int32 map key, so that consecutive keys fill a single probe run.
+     */
+    private static final class ConsecutiveKeyElement implements ImplicitLinkedHashCollection.Element {
+        private int prev = ImplicitLinkedHashCollection.INVALID_INDEX;
+        private int next = ImplicitLinkedHashCollection.INVALID_INDEX;
+        private final int key;
+
+        ConsecutiveKeyElement(int key) {
+            this.key = key;
+        }
+
+        @Override
+        public int prev() {
+            return prev;
+        }
+
+        @Override
+        public void setPrev(int prev) {
+            this.prev = prev;
+        }
+
+        @Override
+        public int next() {
+            return next;
+        }
+
+        @Override
+        public void setNext(int next) {
+            this.next = next;
+        }
+
+        @Override
+        public boolean elementKeysAreEqual(Object o) {
+            return (o instanceof ConsecutiveKeyElement) && key == ((ConsecutiveKeyElement) o).key;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return elementKeysAreEqual(o);
+        }
+
+        @Override
+        public int hashCode() {
+            return key;
+        }
+    }
+
+    private static void addConsecutiveKeysAndVerify(ImplicitLinkedHashCollection<ConsecutiveKeyElement> coll, int count) {
+        for (int i = 0; i < count; i++) {
+            assertTrue(coll.add(new ConsecutiveKeyElement(i)));
+        }
+        assertEquals(count, coll.size());
+        int expected = 0;
+        for (ConsecutiveKeyElement element : coll) {
+            assertEquals(expected++, element.key);
+        }
+        assertEquals(count, expected);
+        assertNotNull(coll.find(new ConsecutiveKeyElement(0)));
+        assertNotNull(coll.find(new ConsecutiveKeyElement(count - 1)));
+        assertTrue(coll.remove(new ConsecutiveKeyElement(count / 2)));
+        assertNull(coll.find(new ConsecutiveKeyElement(count / 2)));
+        assertEquals(count - 1, coll.size());
+    }
+
+    @Test
+    @Timeout(60)
+    public void testEnlargementWithConsecutiveHashCodesIsNotQuadratic() {
+        // Presized for 1000 elements, as the generated message readers do, then filled with
+        // consecutive keys that form a single probe run. Each resize used to remove the
+        // elements from the old array one by one, reseating the rest of the run every time,
+        // so reading a large keyed array took tens of minutes.
+        int count = 1_000_001;
+        addConsecutiveKeysAndVerify(new ImplicitLinkedHashCollection<>(1000), count);
+        addConsecutiveKeysAndVerify(new ImplicitLinkedHashMultiCollection<>(1000), count);
     }
 
     @Test
